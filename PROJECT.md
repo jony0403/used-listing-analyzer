@@ -7,7 +7,8 @@
 - **확장 버전:** `extension/manifest.json` → `2.3.0`  
 - **워크스페이스:** `used-listing-analyzer`
 
-**맥북 ↔ 윈도우:** 이쪽(윈도우 등)에서도 프로젝트 맥락은 이해한 상태로 맞춰 두었으니, 앞으로 맥북·윈도우를 오가며 할 때 `@PROJECT.md`와 저장소를 기준으로 서로 잘 맞춰가자.
+**맥북 ↔ 윈도우:** 이쪽(윈도우 등)에서도 프로젝트 맥락은 이해한 상태로 맞춰 두었으니, 앞으로 맥북·윈도우를 오가며 할 때 `@PROJECT.md`와 저장소를 기준으로 서로 잘 맞춰가자.  
+**Git 동기화:** 두 PC 모두 이 저장소를 Cursor로 연 뒤 채팅에 **`깃동기화`**(또는 **`sync-repo`**)라고 입력하면 에이전트가 `pull`·(필요 시 `commit`/`push`)를 수행한다. 규칙 파일은 `.cursor/rules/git-sync-keyword.mdc`(저장소에 포함) — **다른 PC에서는 반드시 `git pull`로 최신을 받은 다음** 쓰면 된다. 자세한 절은 **§12.5**.
 
 ---
 
@@ -366,6 +367,7 @@ used-listing-analyzer/
   extension_icon.png
   PROJECT.md          ← 이 파일
   .gitignore
+  .cursor/rules/      ← GitHub clone/pull 시 포함(「깃동기화」규칙)
 ```
 
 **복사 X:** `node_modules/`
@@ -394,6 +396,20 @@ git commit -m "중고 매물 스크랩 v2.3"
 - Mac: `~/.cursor/projects/Users-joun-Desktop/agent-transcripts/`  
 - **필수 아님** — `@PROJECT.md` + 코드면 충분  
 - 원본 기획서: `docs/기획1.pdf` 등으로 추가
+
+### 12.5 키워드 「깃동기화」— 맥·윈도 공통 (저장소에 포함)
+
+목적: PC를 옮겨도 Cursor 채팅만으로 **원격 `main`과 맞추기**(다른 쪽에서 올린 커밋 **받아오기** + 이 PC에서 수정한 것 **올리기**).
+
+| 항목 | 내용 |
+|------|------|
+| 트리거 | 채팅에 **`깃동기화`** 또는 **`sync-repo`** 입력 |
+| 전제 | 이 워크스페이스가 **`https://github.com/jony0403/used-listing-analyzer`** 를 연 상태이고, 프로젝트 안에 **`.cursor/rules/git-sync-keyword.mdc`** 가 있어야 함 |
+| 맥/다른 PC에서 처음 | 터미널에서 `git clone …` 또는 기존 폴더면 **`git pull origin main`** 으로 최신 받기 → 그 다음부터 Cursor에서 **`깃동기화`** 가능 |
+| 동작(요약) | 에이전트가 `fetch` / `pull origin main` 으로 **원격 변경을 먼저 반영**한 뒤, 이 PC에 로컬 변경이 있으면 `commit`·`push` 를 처리함 |
+| “받아오기”만 하면 될 때 | 상대가 이미 push 했고 내 쪽 수정이 없으면, 실질적으로 **`pull`만** 이루어지고 커밋/푸시는 생략될 수 있음 |
+
+**주의:** 예전에 USB로 폴더만 복사한 사본에는 `.cursor` 규칙이 없을 수 있음 → **GitHub에서 clone/pull 한 쪽**을 Cursor로 열 것.
 
 ---
 
