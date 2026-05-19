@@ -5,7 +5,7 @@
 
 - **작성일:** 2026-05-19  
 - **확장 버전:** `extension/manifest.json` → `2.3.0`  
-- **워크스페이스:** `링크에서 이미지 가져오기`
+- **워크스페이스:** `used-listing-analyzer`
 
 ---
 
@@ -355,7 +355,7 @@ node analyzer-server.mjs
 ### 12.1 복사할 것
 
 ```
-링크에서 이미지 가져오기/
+used-listing-analyzer/
   extension/          ← 필수
   analyzer/
   analyzer-server.mjs
@@ -371,7 +371,7 @@ node analyzer-server.mjs
 ### 12.2 Windows 첫 실행
 
 ```powershell
-cd Desktop\링크에서 이미지 가져오기
+cd Desktop\used-listing-analyzer
 npm install
 node analyzer-server.mjs
 ```
