@@ -6,7 +6,7 @@
   const UA =
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36';
 
-  const DETAIL_PATH_RE = /\/(?:products|posts)\/(\d+)(?:\/|$)/;
+  const DETAIL_PATH_RE = /\/(?:product|products|posts)\/(\d+)(?:\/|$)/;
 
   function extractItemIdFromDetailUrl(u) {
     try {
@@ -75,9 +75,34 @@
     return [];
   }
 
+  function sanitizeBunjangBody(raw) {
+    let t = textFromHtml(raw)
+      .replace(/\u00a0/g, ' ')
+      .replace(/\r\n/g, '\n')
+      .trim();
+    if (!t) return '';
+    if (/직거래부터\s*택배거래까지\s*쉽고\s*안전하게|취향\s*기반\s*중고거래\s*플랫폼/.test(t)) return '';
+    if (/번개장터|중고거래\s*플랫폼/.test(t) && t.length < 120) return '';
+
+    const stop = t.search(/(?:상품정보|거래정보|판매자정보|상점정보|연관상품|추천상품|비슷한\s*상품)/);
+    if (stop > 8) t = t.slice(0, stop).trim();
+
+    return t
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => {
+        if (!line) return false;
+        if (/^(브랜드|상품상태|수량|배송비|카테고리)\b/.test(line)) return false;
+        if (/^(찜|댓글|조회|신고|공유)\b/.test(line)) return false;
+        return true;
+      })
+      .join('\n')
+      .trim();
+  }
+
   function pickBody(p) {
     for (const k of ['description', 'detailHtml', 'descriptionHtml', 'memo']) {
-      const t = textFromHtml(p?.[k]);
+      const t = sanitizeBunjangBody(p?.[k]);
       if (t.length >= 8) return t;
     }
     return '';
@@ -120,13 +145,23 @@
   }
 
   function harvestBodyFromDom() {
-    const meta = document.querySelector('meta[property="og:description"]')?.content?.trim() || '';
+    const meta = sanitizeBunjangBody(document.querySelector('meta[property="og:description"]')?.content || '');
     let best = '';
-    document.getElementById('root')?.querySelectorAll('[class*="description" i], article')?.forEach((el) => {
-      const t = (el.innerText || '').trim();
-      if (t.length > best.length && t.length >= 80) best = t;
-    });
-    return best.length >= 120 ? best : meta.length >= 30 ? meta : '';
+    const selectors = [
+      '[data-testid*="description" i]',
+      '[class*="description" i]',
+      '[class*="ProductDescription" i]',
+      '[class*="product-description" i]',
+      'article',
+    ];
+    for (const sel of selectors) {
+      document.getElementById('root')?.querySelectorAll(sel)?.forEach((el) => {
+        if (MS.isInsideNoiseSection?.(el)) return;
+        const t = sanitizeBunjangBody(el.innerText || '');
+        if (t.length > best.length && t.length >= 4) best = t;
+      });
+    }
+    return best || meta || '';
   }
 
   function toListing(pid, p, payload, source, sourceLabel, warn) {
@@ -149,10 +184,8 @@
   function enrichDom(data, pid) {
     let body = data.body || '';
     let imgs = [...(data.imageUrls || [])];
-    if (body.length < 15) {
-      const g = harvestBodyFromDom();
-      if (g.length > body.length) body = g;
-    }
+    const domBody = harvestBodyFromDom();
+    if (!body || (domBody && domBody.length >= 4 && domBody.length < Math.max(body.length, 120))) body = domBody;
     if (!imgs.length) imgs = harvestImagesFromDom(pid);
     return { ...data, body: body.trim(), imageUrls: imgs };
   }
@@ -225,7 +258,7 @@
       });
     };
 
-    for (const a of document.querySelectorAll('a[href*="/products/"], a[href*="/posts/"]')) {
+    for (const a of document.querySelectorAll('a[href*="/product/"], a[href*="/products/"], a[href*="/posts/"]')) {
       if (MS.isInsideNoiseSection(a)) continue;
       const card = a.closest('article, li, div[class*="Product"], div[class*="product"], div[class*="item"]') || a.parentElement;
       const text = card?.innerText || '';

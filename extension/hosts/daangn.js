@@ -2,8 +2,6 @@
 (() => {
   const { register, formatWon, textFromHtml } = globalThis.MarketScrape;
 
-  const HOLDER_ID = '__ms_daangn_payload__';
-
   function parseRemixContextFromString(html, marker = 'window.__remixContext = ') {
     const start = html.indexOf(marker);
     if (start < 0) return null;
@@ -55,54 +53,7 @@
     return findProductInLoaderData(ctx?.state?.loaderData);
   }
 
-  /** 콘텐츠 스크립트는 격리 월드 → 페이지의 window.__remixContext 는 인라인 script 로 읽음 */
-  function getProductFromPageWindow() {
-    return new Promise((resolve) => {
-      let holder = document.getElementById(HOLDER_ID);
-      if (!holder) {
-        holder = document.createElement('div');
-        holder.id = HOLDER_ID;
-        holder.setAttribute('hidden', '');
-        document.documentElement.appendChild(holder);
-      }
-      holder.textContent = '';
-
-      const tag = document.createElement('script');
-      tag.textContent = `(function(){
-        try {
-          var ld = (window.__remixContext && window.__remixContext.state && window.__remixContext.state.loaderData) || {};
-          var p = null;
-          for (var k in ld) {
-            if (/buy[._-]?sell|buy_sell/i.test(k) && ld[k] && ld[k].product && ld[k].product.title) {
-              p = ld[k].product; break;
-            }
-          }
-          if (!p) {
-            for (var k in ld) {
-              if (ld[k] && ld[k].product && ld[k].product.title) { p = ld[k].product; break; }
-            }
-          }
-          document.getElementById(${JSON.stringify(HOLDER_ID)}).textContent = p ? JSON.stringify(p) : '';
-        } catch (e) {
-          document.getElementById(${JSON.stringify(HOLDER_ID)}).textContent = '';
-        }
-      })();`;
-      document.documentElement.appendChild(tag);
-      tag.remove();
-
-      const finish = () => {
-        try {
-          const raw = holder.textContent?.trim();
-          resolve(raw ? JSON.parse(raw) : null);
-        } catch {
-          resolve(null);
-        }
-      };
-      requestAnimationFrame(() => requestAnimationFrame(finish));
-    });
-  }
-
-  const DETAIL_PATH_RE = /\/buy-sell\/[^/]+-([a-z0-9]+)\/?$/i;
+  const DETAIL_PATH_RE = /\/(?:kr\/)?buy-sell\/[^/?#]+-([a-z0-9]+)\/?$/i;
 
   function extractItemIdFromUrl(url = location.href) {
     try {
@@ -114,13 +65,20 @@
   }
 
   function isDetailPage(url = location.href) {
-    return Boolean(extractItemIdFromUrl(url));
+    if (extractItemIdFromUrl(url)) return true;
+    const canonical = document.querySelector('link[rel="canonical"]')?.href || '';
+    const ogUrl = document.querySelector('meta[property="og:url"]')?.getAttribute('content') || '';
+    return Boolean(extractItemIdFromUrl(canonical) || extractItemIdFromUrl(ogUrl));
   }
 
   function isListingImageUrl(url) {
     const u = String(url || '').split(/[?#]/)[0];
     if (!/^https?:\/\//i.test(u)) return false;
-    if (!/img\.kr\.gcp-karroter\.net|images\.daangn\.com|image\.daangn\.com|karrot-market/i.test(u))
+    if (
+      !/img\.kr\.gcp-karroter\.net|images\.daangn\.com|image\.daangn\.com|karrot-market|dnvefa72aowie\.cloudfront\.net|daangncdn/i.test(
+        u
+      )
+    )
       return false;
     if (
       /profile|avatar|user_profile|\/users\/|manner|emoji|static\/|icon|logo|banner|advert|thumbnail_seller|seller/i.test(
@@ -253,10 +211,14 @@
   }
 
   function scrapeProductFromDom() {
-    const itemId = extractItemIdFromUrl();
+    const itemId =
+      extractItemIdFromUrl() ||
+      extractItemIdFromUrl(document.querySelector('link[rel="canonical"]')?.href || '') ||
+      extractItemIdFromUrl(document.querySelector('meta[property="og:url"]')?.getAttribute('content') || '');
+    const rawOgTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content')?.trim() || '';
     const title =
       document.querySelector('h1')?.textContent?.trim() ||
-      document.querySelector('meta[property="og:title"]')?.getAttribute('content')?.trim() ||
+      rawOgTitle.replace(/\s*[|｜].*$/, '').trim() ||
       document.title?.split('|')[0]?.trim() ||
       '';
 
@@ -325,9 +287,6 @@
 
   async function getProductFromPage() {
     let p = getProductFromStaticHtml();
-    if (p) return p;
-
-    p = await getProductFromPageWindow();
     if (p) return p;
 
     return scrapeProductFromDom();

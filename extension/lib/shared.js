@@ -2,6 +2,8 @@
 (() => {
   const Root = globalThis.MarketScrape || (globalThis.MarketScrape = {});
   const adapters = (Root.adapters = Root.adapters || []);
+  const INSTANCE_ID = `${Date.now()}:${Math.random().toString(36).slice(2)}`;
+  Root.__activeInstanceId = INSTANCE_ID;
 
   Root.register = (adapter) => {
     if (adapter?.id) adapters.push(adapter);
@@ -71,28 +73,50 @@
   let host = null;
   let shadow = null;
   let open = false;
+  let analyzerOpenTimer = null;
+
+  function setPanelOpen(nextOpen) {
+    open = Boolean(nextOpen);
+    shadow?.getElementById('msPanel')?.classList.toggle('open', open);
+  }
+
+  function updateFloatingVisibility() {
+    const ad = Root.getAdapter();
+    const supported = Boolean(ad);
+    const onDetail = supported && typeof ad.isDetailPage === 'function' ? ad.isDetailPage() : false;
+    const launcher = shadow?.getElementById('msLauncher');
+    if (launcher) launcher.style.display = supported ? '' : 'none';
+    launcher?.classList.toggle('daangn', ad?.id === 'daangn');
+    if (!supported) setPanelOpen(false);
+    return { ad, supported, onDetail };
+  }
 
   function ensureHost() {
     if (host && document.documentElement.contains(host)) return;
+    document.getElementById('market-scrape-root')?.remove();
     host = document.createElement('div');
     host.id = 'market-scrape-root';
     Object.assign(host.style, {
       all: 'initial',
       position: 'fixed',
-      right: '12px',
-      bottom: '12px',
+      right: '24px',
+      bottom: '24px',
       zIndex: '2147483646',
       fontFamily: 'Pretendard, system-ui, -apple-system, sans-serif',
     });
     document.documentElement.appendChild(host);
     shadow = host.attachShadow({ mode: 'open' });
+    const iconUrl = chrome.runtime.getURL('icons/icon32.png');
     shadow.innerHTML = `
 <style>
 *{box-sizing:border-box}
-.fab{position:fixed;right:0;bottom:0;padding:10px 14px;border-radius:999px;background:#111;color:#fff;font-size:13px;font-weight:700;border:none;cursor:pointer;box-shadow:0 6px 24px rgba(0,0,0,.25)}
-.fab.daangn{background:#FF6F0F}
-.panel{display:none;width:min(420px,calc(100vw - 24px));max-height:min(78vh,640px);overflow:auto;background:#fff;color:#1a1a1a;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.18);border:1px solid #e5e8ed;padding:14px}
-.panel.open{display:block;margin-bottom:48px}
+.dock{position:fixed;right:24px;bottom:24px;display:flex;align-items:center;gap:8px}
+.launch{width:48px;height:48px;border-radius:999px;border:1px solid rgba(0,0,0,.08);background:#fff;box-shadow:0 8px 28px rgba(0,0,0,.24);cursor:pointer;display:grid;place-items:center;padding:0;transition:transform .16s ease,box-shadow .16s ease}
+.launch.daangn{border-color:rgba(255,111,15,.32);box-shadow:0 8px 28px rgba(255,111,15,.26)}
+.launch img{width:32px;height:32px;display:block}
+.launch:hover{transform:translateY(-2px);box-shadow:0 12px 34px rgba(0,0,0,.28)}
+.panel{position:fixed;right:24px;bottom:84px;width:min(420px,calc(100vw - 48px));max-height:min(78vh,640px);overflow:auto;background:#fff;color:#1a1a1a;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.18);border:1px solid #e5e8ed;padding:14px;opacity:0;visibility:hidden;pointer-events:none;transform:translateY(12px) scale(.96);transform-origin:right bottom;transition:opacity .18s ease,transform .18s ease,visibility .18s ease}
+.panel.open{opacity:1;visibility:visible;pointer-events:auto;transform:translateY(0) scale(1)}
 .head{font-weight:800;font-size:14px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:8px}
 .badge{font-size:11px;font-weight:600;color:#5c6470;background:#f4f5f7;padding:3px 8px;border-radius:999px}
 .price{font-size:18px;font-weight:800;margin:6px 0 8px}
@@ -106,10 +130,22 @@
 .btn{flex:1;min-width:120px;border:none;border-radius:10px;padding:8px 10px;font-weight:700;font-size:12px;cursor:pointer}
 .btn-dark{background:#111;color:#fff}
 .btn-light{background:#eef1f6;color:#111}
+.btn-accent{background:#3b6cff;color:#fff}
+.keywords{display:none;gap:6px;flex-wrap:wrap;margin-top:8px}
+.keywords.open{display:flex}
+.kw{border:1px solid #d9dee8;background:#fff;color:#111;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:700;cursor:pointer}
+.kw:hover{border-color:#3b6cff;color:#2f5fff;background:#f4f7ff}
 .hint{margin-top:8px;font-size:11px;color:#8f96a3;line-height:1.45}
 .err{color:#b42318;font-size:12px;margin-top:6px}
+.toast{position:fixed;right:82px;bottom:29px;min-width:184px;max-width:min(300px,calc(100vw - 112px));padding:10px 12px;border-radius:999px;background:#111;color:#fff;font-size:12px;font-weight:800;box-shadow:0 10px 26px rgba(0,0,0,.2);opacity:0;visibility:hidden;transform:translateY(8px);transition:opacity .18s ease,transform .18s ease,visibility .18s ease;white-space:nowrap;text-align:center}
+.toast.open{opacity:1;visibility:visible;transform:translateY(0)}
 </style>
-<button class="fab" type="button" id="msFab">매물 정보</button>
+<div class="dock">
+  <button class="launch" type="button" id="msLauncher" title="중고 매물 스크랩 열기" aria-label="중고 매물 스크랩 열기">
+    <img src="${iconUrl}" alt="" />
+  </button>
+  <div class="toast" id="msToast" role="status" aria-live="polite"></div>
+</div>
 <div class="panel" id="msPanel">
   <div class="head"><span id="msHead">중고 매물</span><span class="badge" id="msSrc">—</span></div>
   <div class="price" id="msPrice">—</div>
@@ -121,30 +157,32 @@
   <div class="sec-title">본문</div>
   <div class="body" id="msBody"></div>
   <div class="actions">
-    <button class="btn btn-dark" type="button" id="msCopyMd">Markdown 복사</button>
-    <button class="btn btn-light" type="button" id="msCopyPlain">본문만 복사</button>
+    <button class="btn btn-accent" type="button" id="msSendWeb">분석 웹으로 보내기</button>
+    <button class="btn btn-dark" type="button" id="msSearchComps">키워드 후보 만들기</button>
   </div>
+  <div class="keywords" id="msKeywords"></div>
   <p class="hint">번개장터·당근 <strong>상세 페이지</strong>에서 동작합니다.</p>
   <div class="err" id="msErr"></div>
 </div>`;
 
-    shadow.getElementById('msFab')?.addEventListener('click', () => {
-      open = !open;
-      shadow.getElementById('msPanel')?.classList.toggle('open', open);
+    shadow.getElementById('msLauncher')?.addEventListener('click', () => {
+      void sendListingAndOpenAnalyzer();
     });
-    shadow.getElementById('msCopyMd')?.addEventListener('click', async () => {
+    shadow.getElementById('msSendWeb')?.addEventListener('click', async () => {
+      const err = shadow.getElementById('msErr');
       try {
-        await navigator.clipboard.writeText(toMarkdown(latest));
-      } catch {
-        /* ignore */
+        if (err) err.textContent = '분석 웹으로 전송 중...';
+        const r = await refresh({ openOnSuccess: false, save: true });
+        if (!r?.ok) throw new Error(r?.error || '매물 데이터 저장 실패');
+        const opened = await chrome.runtime.sendMessage({ type: 'OPEN_ANALYZER_TAB' });
+        if (!opened?.ok) throw new Error(opened?.error || '분석 웹 열기 실패');
+        if (err) err.textContent = '분석 웹으로 보냈습니다.';
+      } catch (e) {
+        if (err) err.textContent = e instanceof Error ? e.message : String(e);
       }
     });
-    shadow.getElementById('msCopyPlain')?.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(latest?.body || '');
-      } catch {
-        /* ignore */
-      }
+    shadow.getElementById('msSearchComps')?.addEventListener('click', () => {
+      void buildKeywordChoicesFromPanel();
     });
     shadow.getElementById('msImgs')?.addEventListener('click', (ev) => {
       const t = ev.target;
@@ -176,12 +214,147 @@
     return lines.join('\n');
   }
 
+  function showToast(message) {
+    const toast = shadow?.getElementById('msToast');
+    if (!toast) return;
+    toast.textContent = message;
+    toast.classList.add('open');
+  }
+
+  function hideToast() {
+    const toast = shadow?.getElementById('msToast');
+    if (!toast) return;
+    toast.classList.remove('open');
+  }
+
+  async function sendListingAndOpenAnalyzer() {
+    setPanelOpen(false);
+    if (analyzerOpenTimer) {
+      clearTimeout(analyzerOpenTimer);
+      analyzerOpenTimer = null;
+    }
+    try {
+      showToast('분석 웹으로 전송 중...');
+      const r = await refresh({ openOnSuccess: false, save: true });
+      if (!r?.ok) throw new Error(r?.error || '매물 데이터 저장 실패');
+      showToast('전송됐습니다. 3초 뒤 분석 웹으로 이동합니다.');
+      analyzerOpenTimer = setTimeout(() => {
+        analyzerOpenTimer = null;
+        hideToast();
+        void chrome.runtime.sendMessage({ type: 'OPEN_ANALYZER_TAB' });
+      }, 3000);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function ensureListingForPanel() {
+    if (latest?.title) return latest;
+    const r = await refresh({ openOnSuccess: false, save: false });
+    if (!r?.ok || !latest?.title) throw new Error(r?.error || '매물 정보를 불러올 수 없습니다.');
+    return latest;
+  }
+
+  async function getPanelSearchQueries(listing) {
+    const st = await chrome.storage.local.get(['ulsaGeminiApiKey', 'ulsaGeminiModel']);
+    const apiKey = typeof st.ulsaGeminiApiKey === 'string' ? st.ulsaGeminiApiKey.trim() : '';
+    if (!apiKey) {
+      throw new Error('분석 웹에서 Gemini API 키를 먼저 저장하세요.');
+    }
+
+    const model = st.ulsaGeminiModel || 'gemini-2.5-flash';
+    const res = await fetch('http://127.0.0.1:3920/api/search-query', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gemini-Key': apiKey,
+        'X-Gemini-Model': model,
+      },
+      body: JSON.stringify({
+        title: listing.title,
+        body: listing.body || '',
+        imageUrls: Array.isArray(listing.imageUrls) ? listing.imageUrls : [],
+        maxQueries: 3,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `검색어 생성 실패 HTTP ${res.status}`);
+    const rawQueries = Array.isArray(data.queries)
+      ? data.queries
+      : [String(data.query || '').trim()].filter(Boolean);
+    const queries = [];
+    const seen = new Set();
+    const noiseWords =
+      '새상품|미개봉|단순\\s*개봉|개봉만|개봉|급처|네고|택포|직거래|택배|배송|교환|환불|판매|팝니다|팔아요|구매|구입|인증|가능|불가|원하시면|원하신다면|찾는다면|좋습니다|드립니다|드려요|상태|컨디션|외관|기스|찍힘|하자|사용감|사용|실사용|시착|착용|보관|구성품|구성|포함|더스트|관련텍|부속|부분가죽|색상|사이즈|저렴|깨끗|오늘|방금';
+    for (const item of rawQueries) {
+      const q = String(item || '')
+        .replace(/```(?:json)?/gi, ' ')
+        .replace(/[`{}[\]"]/g, ' ')
+        .replace(new RegExp(`\\([^)]*(?:${noiseWords})[^)]*\\)`, 'gi'), ' ')
+        .replace(new RegExp(`\\s*(?:${noiseWords}).*`, 'i'), '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (!q || /^json$/i.test(q) || /queries\s*:/.test(q) || /검색결과|사진과|판매자/.test(q)) continue;
+      const key = q.replace(/\s+/g, '').toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      queries.push(q);
+      if (queries.length >= 3) break;
+    }
+    if (!queries.length) throw new Error('검색어 후보가 비었습니다.');
+    return queries;
+  }
+
+  async function openSearchAndCollect(query) {
+    const err = shadow?.getElementById('msErr');
+    const opened = await chrome.runtime.sendMessage({ type: 'OPEN_SEARCH_TABS', query });
+    if (!opened?.ok) throw new Error(opened?.error || '검색 탭 열기 실패');
+    if (err) err.textContent = `검색어 「${query}」로 번개·당근 탭을 열었습니다. 수집 후 자동으로 닫힙니다.`;
+  }
+
+  function renderKeywordChoices(queries) {
+    const box = shadow?.getElementById('msKeywords');
+    if (!box) return;
+    box.innerHTML = '';
+    for (const q of queries.slice(0, 3)) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'kw';
+      btn.textContent = q;
+      btn.addEventListener('click', () => {
+        void (async () => {
+          try {
+            await openSearchAndCollect(q);
+          } catch (e) {
+            const err = shadow?.getElementById('msErr');
+            if (err) err.textContent = e instanceof Error ? e.message : String(e);
+          }
+        })();
+      });
+      box.appendChild(btn);
+    }
+    box.classList.toggle('open', box.childElementCount > 0);
+  }
+
+  async function buildKeywordChoicesFromPanel() {
+    const err = shadow?.getElementById('msErr');
+    try {
+      if (err) err.textContent = 'AI가 키워드 후보를 만드는 중...';
+      const listing = await ensureListingForPanel();
+      const queries = await getPanelSearchQueries(listing);
+      renderKeywordChoices(queries);
+      if (err) err.textContent = '후보 생성 완료. 테스트할 키워드를 누르면 자동 수집합니다.';
+    } catch (e) {
+      if (err) err.textContent = e instanceof Error ? e.message : String(e);
+    }
+  }
+
   function render(data, errMsg) {
     ensureHost();
     latest = data;
-    const fab = shadow.getElementById('msFab');
+    const launcher = shadow.getElementById('msLauncher');
     shadow.getElementById('msErr').textContent = errMsg || '';
-    fab?.classList.toggle('daangn', data?.platform === 'daangn');
+    launcher?.classList.toggle('daangn', data?.platform === 'daangn');
 
     if (!data) {
       shadow.getElementById('msPrice').textContent = '—';
@@ -212,7 +385,7 @@
   }
 
   async function refresh(opts = {}) {
-    const { openOnSuccess = false } = opts;
+    const { openOnSuccess = false, save = false } = opts;
     ensureHost();
     const adapter = Root.getAdapter();
     if (!adapter) {
@@ -240,11 +413,8 @@
       const data = await adapter.fetchListing(itemId);
       if (!data) throw new Error('매물 데이터가 비어 있습니다.');
       render(data, data._warn || '');
-      if (typeof Root.saveListing === 'function') await Root.saveListing(data);
-      if (openOnSuccess) {
-        open = true;
-        shadow.getElementById('msPanel')?.classList.add('open');
-      }
+      if (save && typeof Root.saveListing === 'function') await Root.saveListing(data);
+      if (openOnSuccess) setPanelOpen(true);
       return { ok: true, imageCount: data.imageUrls?.length ?? 0, platform: adapter.id };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -255,27 +425,25 @@
   }
 
   Root.boot = () => {
+    if (Root.__routeTimer) clearInterval(Root.__routeTimer);
+    if (Root.__hostWatchTimer) clearInterval(Root.__hostWatchTimer);
+
     ensureHost();
-    const ad = Root.getAdapter();
-    const onDetail = ad && typeof ad.isDetailPage === 'function' ? ad.isDetailPage() : false;
-    const fab = shadow.getElementById('msFab');
-    if (fab) fab.style.display = onDetail ? '' : 'none';
-    fab?.classList.toggle('daangn', ad?.id === 'daangn');
+    updateFloatingVisibility();
 
     chrome.runtime.onMessage.addListener((msg, _s, sendResponse) => {
       if (!msg?.type) return undefined;
       (async () => {
         switch (msg.type) {
           case 'TOGGLE_PANEL':
-            open = !open;
-            shadow.getElementById('msPanel')?.classList.toggle('open', open);
+            setPanelOpen(!open);
             sendResponse({ ok: true });
             break;
           case 'REFRESH':
-            sendResponse(await refresh({ openOnSuccess: true }));
+            sendResponse(await refresh({ openOnSuccess: true, save: false }));
             break;
           case 'GET_LISTING': {
-            const r = await refresh({ openOnSuccess: false });
+            const r = await refresh({ openOnSuccess: false, save: false });
             if (!r?.ok || !latest) {
               sendResponse({ ok: false, error: r?.error || '매물 데이터 없음' });
               break;
@@ -295,7 +463,11 @@
             break;
           }
           case 'REFRESH_AND_SAVE':
-            sendResponse(await refresh({ openOnSuccess: false }));
+            sendResponse(await refresh({ openOnSuccess: false, save: true }));
+            break;
+          case 'SEND_TO_ANALYZER':
+            void sendListingAndOpenAnalyzer();
+            sendResponse({ ok: true });
             break;
           case 'COLLECT_SEARCH': {
             const ad = Root.getAdapter();
@@ -349,17 +521,33 @@
       return true;
     });
 
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== 'local' || !changes.marketScrapeAutoCollect) return;
+      void Root.tryAutoCollectSearch?.();
+    });
+
     let lastHref = location.href;
-    setInterval(() => {
+    Root.__routeTimer = setInterval(() => {
+      if (Root.__activeInstanceId !== INSTANCE_ID) return;
       if (location.href === lastHref) return;
       lastHref = location.href;
-      open = false;
-      shadow?.getElementById('msPanel')?.classList.remove('open');
-      const a = Root.getAdapter();
-      if (a?.isDetailPage?.()) void refresh({ openOnSuccess: false });
+      setPanelOpen(false);
+      const { ad: a, onDetail } = updateFloatingVisibility();
+      if (onDetail && a?.isDetailPage?.()) void refresh({ openOnSuccess: false, save: false });
     }, 1000);
 
-    if (Root.getAdapter()?.isDetailPage?.()) void refresh({ openOnSuccess: false });
+    Root.__hostWatchTimer = setInterval(() => {
+      if (Root.__activeInstanceId !== INSTANCE_ID) return;
+      const missing = !host || !document.documentElement.contains(host) || !shadow;
+      if (missing) {
+        host = null;
+        shadow = null;
+        ensureHost();
+      }
+      updateFloatingVisibility();
+    }, 1200);
+
+    if (Root.getAdapter()?.isDetailPage?.()) void refresh({ openOnSuccess: false, save: false });
 
     void Root.tryAutoCollectSearch?.();
   };
@@ -373,8 +561,12 @@
     if (!flags?.[ad.id]) return;
     if (flags.at && Date.now() - flags.at > 3 * 60 * 1000) return;
 
-    await new Promise((r) => setTimeout(r, 2000));
-    const items = ad.harvestSearchListings();
+    let items = [];
+    for (let i = 0; i < 4; i += 1) {
+      await new Promise((r) => setTimeout(r, i === 0 ? 2000 : 1500));
+      items = ad.harvestSearchListings();
+      if (items.length) break;
+    }
     const q =
       new URL(location.href).searchParams.get('q') ||
       new URL(location.href).searchParams.get('search') ||

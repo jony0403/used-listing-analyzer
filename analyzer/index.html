@@ -3,7 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>매물 정리 · 가격 분석</title>
+    <title>중고 매물, 이거 사도 돼요?</title>
+    <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon32.png" />
+    <link rel="apple-touch-icon" href="/icons/icon128.png" />
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
@@ -37,11 +40,15 @@
 
     <div id="appShell" class="app-shell app-shell--locked" inert>
       <header class="top">
-        <div>
-          <h1>매물 정리</h1>
-          <p class="sub">확장 프로그램에서 뽑은 데이터가 여기에 쌓입니다.</p>
+        <div class="brand">
+          <img class="brand-icon" src="/icons/icon48.png" alt="" width="32" height="32" />
+          <div>
+          <h1>중고 매물, 이거 사도 돼요?</h1>
+          <p class="sub">시세·하자·네고까지 구매 판단을 도와줍니다.</p>
+          </div>
         </div>
         <div class="top-actions">
+          <button type="button" id="btnHistory" class="btn btn-secondary btn-small">최근 매물</button>
           <button type="button" id="btnAiSettings" class="btn btn-secondary btn-small">AI 설정</button>
           <button type="button" id="btnRefresh" class="btn">불러오기</button>
         </div>
@@ -49,18 +56,23 @@
 
     <p id="status" class="status">분석 페이지를 연 상태에서, 번개/당근에서 «데이터 다시 불러오기»를 누르세요.</p>
 
-    <main class="layout">
-      <section class="card main-card" id="current">
+    <main class="analysis-board" id="analysisBoard">
+      <section class="listing-cluster" id="current">
         <p class="empty">아직 데이터가 없습니다.</p>
       </section>
-
-      <aside class="side">
-        <h2>최근 매물</h2>
-        <ul id="history" class="history">
-          <li class="empty-item">비어 있음</li>
-        </ul>
-      </aside>
     </main>
+
+    <aside class="recent-drawer" id="recentDrawer" aria-hidden="true">
+      <div class="recent-drawer__head">
+        <h2>최근 매물</h2>
+        <button type="button" id="btnHistoryClear" class="drawer-clear">전체 삭제</button>
+        <button type="button" id="btnHistoryClose" class="drawer-close" aria-label="최근 매물 닫기">×</button>
+      </div>
+      <ul id="history" class="history">
+        <li class="empty-item">비어 있음</li>
+      </ul>
+    </aside>
+    <button type="button" id="drawerBackdrop" class="drawer-backdrop" hidden aria-label="최근 매물 닫기"></button>
 
     <div id="lightbox" class="lightbox" hidden aria-hidden="true">
       <button type="button" class="lightbox-close" id="lightboxClose" aria-label="닫기">×</button>
