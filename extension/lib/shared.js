@@ -74,6 +74,8 @@
   let shadow = null;
   let open = false;
   let analyzerOpenTimer = null;
+  let analyzerOpenCountdownTimer = null;
+  let sendInFlight = false;
 
   function setPanelOpen(nextOpen) {
     open = Boolean(nextOpen);
@@ -172,13 +174,19 @@
       const err = shadow.getElementById('msErr');
       try {
         if (err) err.textContent = '분석 웹으로 전송 중...';
-        const r = await refresh({ openOnSuccess: false, save: true });
-        if (!r?.ok) throw new Error(r?.error || '매물 데이터 저장 실패');
+        const r = await refreshForSendWithRetry(latest);
+        if (!r?.ok) {
+          if (err) err.textContent = '매물 정보를 읽는 중입니다. 잠시 후 다시 눌러주세요.';
+          return;
+        }
         const opened = await chrome.runtime.sendMessage({ type: 'OPEN_ANALYZER_TAB' });
-        if (!opened?.ok) throw new Error(opened?.error || '분석 웹 열기 실패');
+        if (!opened?.ok) {
+          if (err) err.textContent = '분석 웹을 여는 중입니다. 잠시 후 다시 시도해 주세요.';
+          return;
+        }
         if (err) err.textContent = '분석 웹으로 보냈습니다.';
-      } catch (e) {
-        if (err) err.textContent = e instanceof Error ? e.message : String(e);
+      } catch {
+        if (err) err.textContent = '매물 정보를 읽는 중입니다. 잠시 후 다시 눌러주세요.';
       }
     });
     shadow.getElementById('msSearchComps')?.addEventListener('click', () => {
@@ -227,24 +235,84 @@
     toast.classList.remove('open');
   }
 
-  async function sendListingAndOpenAnalyzer() {
-    setPanelOpen(false);
+  function clearAnalyzerOpenCountdown() {
     if (analyzerOpenTimer) {
       clearTimeout(analyzerOpenTimer);
       analyzerOpenTimer = null;
     }
+    if (analyzerOpenCountdownTimer) {
+      clearInterval(analyzerOpenCountdownTimer);
+      analyzerOpenCountdownTimer = null;
+    }
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function listingKey(data) {
+    return data?.platform && data?.itemId ? `${data.platform}:${data.itemId}` : '';
+  }
+
+  function currentPageKey() {
+    const adapter = Root.getAdapter();
+    if (!adapter || (typeof adapter.isDetailPage === 'function' && !adapter.isDetailPage())) return '';
+    const itemId = adapter.guessItemId?.();
+    return itemId ? `${adapter.id}:${itemId}` : '';
+  }
+
+  async function refreshForSendWithRetry(cachedListing) {
+    let lastResult = null;
+    for (let i = 0; i < 3; i += 1) {
+      lastResult = await refresh({ openOnSuccess: false, save: true });
+      if (lastResult?.ok) return lastResult;
+      await sleep(i === 0 ? 350 : 700);
+    }
+
+    if (cachedListing?.title && listingKey(cachedListing) === currentPageKey()) {
+      render(cachedListing, '');
+      if (typeof Root.saveListing === 'function') await Root.saveListing(cachedListing);
+      return {
+        ok: true,
+        imageCount: cachedListing.imageUrls?.length ?? 0,
+        platform: cachedListing.platform,
+        fromCache: true,
+      };
+    }
+
+    return lastResult || { ok: false };
+  }
+
+  async function sendListingAndOpenAnalyzer() {
+    if (sendInFlight) return;
+    sendInFlight = true;
+    setPanelOpen(false);
+    clearAnalyzerOpenCountdown();
+    const cachedListing = latest;
     try {
       showToast('분석 웹으로 전송 중...');
-      const r = await refresh({ openOnSuccess: false, save: true });
-      if (!r?.ok) throw new Error(r?.error || '매물 데이터 저장 실패');
-      showToast('전송됐습니다. 3초 뒤 분석 웹으로 이동합니다.');
+      const r = await refreshForSendWithRetry(cachedListing);
+      if (!r?.ok) {
+        showToast('매물 정보를 읽는 중입니다. 잠시 후 다시 눌러주세요.');
+        return;
+      }
+      let secondsLeft = 3;
+      showToast(`전송됐습니다. ${secondsLeft}초 뒤 분석 웹으로 이동합니다.`);
+      analyzerOpenCountdownTimer = setInterval(() => {
+        secondsLeft -= 1;
+        if (secondsLeft > 0) {
+          showToast(`전송됐습니다. ${secondsLeft}초 뒤 분석 웹으로 이동합니다.`);
+        }
+      }, 1000);
       analyzerOpenTimer = setTimeout(() => {
-        analyzerOpenTimer = null;
+        clearAnalyzerOpenCountdown();
         hideToast();
         void chrome.runtime.sendMessage({ type: 'OPEN_ANALYZER_TAB' });
       }, 3000);
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : String(e));
+    } catch {
+      showToast('매물 정보를 읽는 중입니다. 잠시 후 다시 눌러주세요.');
+    } finally {
+      sendInFlight = false;
     }
   }
 

@@ -5,6 +5,16 @@
   UlsaAi.getStoredModel = () =>
     localStorage.getItem(UlsaAi.STORAGE_KEY_MODEL) || UlsaAi.DEFAULT_MODEL;
 
+  function cleanApiError(text, fallback = 'AI 분석 요청에 실패했습니다.') {
+    const raw = String(text || '').trim();
+    if (!raw) return fallback;
+    if (/<!doctype|<html|<title>/i.test(raw)) {
+      const title = raw.match(/<title>([^<]+)<\/title>/i)?.[1]?.trim();
+      return title ? `서버 오류: ${title}` : fallback;
+    }
+    return raw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 220) || fallback;
+  }
+
   /**
    * @param {{ title: string, body?: string, imageUrls?: string[], apiKey: string, model?: string }} p
    * @returns {Promise<{ query: string }>}
@@ -50,10 +60,10 @@
     try {
       data = JSON.parse(text);
     } catch {
-      throw new Error(text.slice(0, 200) || `HTTP ${res.status}`);
+      throw new Error(cleanApiError(text, `HTTP ${res.status}`));
     }
     if (!res.ok) {
-      throw new Error(data.error || data.message || `HTTP ${res.status}`);
+      throw new Error(cleanApiError(data.error || data.message, `HTTP ${res.status}`));
     }
     return data;
   };
@@ -83,10 +93,10 @@
     try {
       data = JSON.parse(text);
     } catch {
-      throw new Error(text.slice(0, 200) || `HTTP ${res.status}`);
+      throw new Error(cleanApiError(text, `HTTP ${res.status}`));
     }
     if (!res.ok) {
-      throw new Error(data.error || data.message || `HTTP ${res.status}`);
+      throw new Error(cleanApiError(data.error || data.message, `HTTP ${res.status}`));
     }
     return data;
   };
@@ -112,10 +122,10 @@
     try {
       data = JSON.parse(text);
     } catch {
-      throw new Error(text.slice(0, 200) || `HTTP ${res.status}`);
+      throw new Error(cleanApiError(text, `HTTP ${res.status}`));
     }
     if (!res.ok) {
-      throw new Error(data.error || data.message || `HTTP ${res.status}`);
+      throw new Error(cleanApiError(data.error || data.message, `HTTP ${res.status}`));
     }
     return data;
   };
@@ -147,10 +157,81 @@
     try {
       data = JSON.parse(text);
     } catch {
-      throw new Error(text.slice(0, 200) || `HTTP ${res.status}`);
+      throw new Error(cleanApiError(text, `HTTP ${res.status}`));
     }
     if (!res.ok) {
-      throw new Error(data.error || data.message || `HTTP ${res.status}`);
+      throw new Error(cleanApiError(data.error || data.message, `HTTP ${res.status}`));
+    }
+    return data;
+  };
+
+  /**
+   * @param {{ title: string, body?: string, seller?: object, priceLabel?: string, productName?: string, summary?: object, riskAnalysis?: object, apiKey: string, model?: string }} p
+   * @returns {Promise<{ analysis: { sellerVerdict: string, bodyVerdict: string, questions: string[], redFlags: string[], overall: string } }>}
+   */
+  UlsaAi.fetchListingTextAnalysis = async (p) => {
+    const port = location.port || '3920';
+    const model = p.model || UlsaAi.getStoredModel();
+    const res = await fetch(`http://${location.hostname}:${port}/api/listing-text-analysis`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gemini-Key': p.apiKey,
+        'X-Gemini-Model': model,
+      },
+      body: JSON.stringify({
+        title: p.title || '',
+        body: p.body || '',
+        seller: p.seller || null,
+        priceLabel: p.priceLabel || '',
+        productName: p.productName || '',
+        summary: p.summary || null,
+        riskAnalysis: p.riskAnalysis || null,
+      }),
+    });
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(cleanApiError(text, `HTTP ${res.status}`));
+    }
+    if (!res.ok) {
+      throw new Error(cleanApiError(data.error || data.message, `HTTP ${res.status}`));
+    }
+    return data;
+  };
+
+  /**
+   * @param {{ title: string, body?: string, imageUrls?: string[], productName?: string, apiKey: string, model?: string }} p
+   * @returns {Promise<{ analysis: { images: Array<{ index: number, label?: string, comment: string, level?: string, imageWidth?: number, imageHeight?: number }>, overall: string } }>}
+   */
+  UlsaAi.fetchListingImageAnalysis = async (p) => {
+    const port = location.port || '3920';
+    const model = p.model || UlsaAi.getStoredModel();
+    const res = await fetch(`http://${location.hostname}:${port}/api/listing-image-analysis`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gemini-Key': p.apiKey,
+        'X-Gemini-Model': model,
+      },
+      body: JSON.stringify({
+        title: p.title || '',
+        body: p.body || '',
+        imageUrls: Array.isArray(p.imageUrls) ? p.imageUrls : [],
+        productName: p.productName || '',
+      }),
+    });
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(cleanApiError(text, `HTTP ${res.status}`));
+    }
+    if (!res.ok) {
+      throw new Error(cleanApiError(data.error || data.message, `HTTP ${res.status}`));
     }
     return data;
   };
@@ -178,10 +259,10 @@
     try {
       data = JSON.parse(text);
     } catch {
-      throw new Error(text.slice(0, 200) || `HTTP ${res.status}`);
+      throw new Error(cleanApiError(text, `HTTP ${res.status}`));
     }
     if (!res.ok) {
-      throw new Error(data.error || data.message || `HTTP ${res.status}`);
+      throw new Error(cleanApiError(data.error || data.message, `HTTP ${res.status}`));
     }
     return data;
   };

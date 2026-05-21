@@ -137,6 +137,35 @@
   });
 
   window.addEventListener('message', (ev) => {
+    if (ev.source !== window || ev.data?.type !== 'MARKET_SCRAPE_PROMOTE_HISTORY') return;
+    const key = String(ev.data.key || '');
+    if (!key) return;
+    try {
+      chrome.storage.local.get(['marketScrapeHistory'], (res) => {
+        const history = Array.isArray(res.marketScrapeHistory) ? res.marketScrapeHistory : [];
+        const found = history.find((item) => `${item.platform}:${item.itemId}` === key);
+        if (!found) return;
+        const nextHistory = [found, ...history.filter((item) => `${item.platform}:${item.itemId}` !== key)];
+        chrome.storage.local.set(
+          {
+            marketScrapeLatest: found,
+            marketScrapeHistory: nextHistory,
+          },
+          () => {
+            window.postMessage({ type: 'MARKET_SCRAPE_MUTATION_RESULT', ok: true, action: 'promote-history' }, '*');
+            pushToPage();
+          }
+        );
+      });
+    } catch (e) {
+      window.postMessage(
+        { type: 'MARKET_SCRAPE_MUTATION_RESULT', ok: false, error: e instanceof Error ? e.message : String(e) },
+        '*'
+      );
+    }
+  });
+
+  window.addEventListener('message', (ev) => {
     if (ev.source !== window || ev.data?.type !== 'MARKET_SCRAPE_CLEAR_HISTORY') return;
     try {
       chrome.storage.local.set(
