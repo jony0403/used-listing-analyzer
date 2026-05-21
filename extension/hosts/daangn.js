@@ -317,6 +317,94 @@
     return best || domBody || '';
   }
 
+  function cleanDaangnSellerLine(raw) {
+    return String(raw || '')
+      .replace(/\u00a0/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function looksDaangnLocationLine(line) {
+    const t = cleanDaangnSellerLine(line);
+    if (!t || t.length > 40 || /[.!?]|원|조회|채팅|찜|신고|공유/.test(t)) return false;
+    return /^(?:서울|부산|대구|인천|광주|대전|울산|세종|경기|경기도|강원|강원도|충북|충청북도|충남|충청남도|전북|전라북도|전남|전라남도|경북|경상북도|경남|경상남도|제주|제주도)\s+.+(?:시|군|구|동|읍|면|리)$/u.test(
+      t
+    );
+  }
+
+  function looksDaangnSellerNameLine(line) {
+    const t = cleanDaangnSellerLine(line);
+    if (!t || t.length > 30) return false;
+    if (looksDaangnLocationLine(t)) return false;
+    if (/^(?:판매자|본문|사진|가격|상품|매너온도|후기|채팅|찜|조회|공유|신고|더보기)$/u.test(t)) return false;
+    if (/[\d,]+\s*원|°\s*C|판매완료|예약중|거래완료/.test(t)) return false;
+    return /[가-힣A-Za-z0-9]/.test(t);
+  }
+
+  function parseSellerFromPageText() {
+    const lines = (document.body?.innerText || '')
+      .split('\n')
+      .map(cleanDaangnSellerLine)
+      .filter(Boolean);
+
+    for (let i = 0; i < lines.length; i += 1) {
+      if (!/\d{2,3}(?:\.\d+)?\s*°?\s*C/i.test(lines[i])) continue;
+      for (let j = i - 1; j >= Math.max(0, i - 5); j -= 1) {
+        if (!looksDaangnLocationLine(lines[j])) continue;
+        for (let k = j - 1; k >= Math.max(0, j - 4); k -= 1) {
+          if (looksDaangnSellerNameLine(lines[k])) {
+            return { nickname: lines[k], location: lines[j] };
+          }
+        }
+        return { nickname: '', location: lines[j] };
+      }
+    }
+
+    const location = lines.find(looksDaangnLocationLine) || '';
+    if (!location) return { nickname: '', location: '' };
+    const idx = lines.indexOf(location);
+    const nickname =
+      idx > 0
+        ? lines
+            .slice(Math.max(0, idx - 4), idx)
+            .reverse()
+            .find(looksDaangnSellerNameLine) || ''
+        : '';
+    return { nickname, location };
+  }
+
+  function pickFirstString(value, keys) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (!value || typeof value !== 'object') return '';
+    for (const key of keys) {
+      const raw = value[key];
+      if (typeof raw === 'string' && raw.trim()) return raw.trim();
+      if (raw && typeof raw === 'object') {
+        const nested = pickFirstString(raw, ['name', 'displayName', 'text']);
+        if (nested) return nested;
+      }
+    }
+    return '';
+  }
+
+  function pickDaangnUserFromProduct(p) {
+    const u = p?.user || p?.seller || p?.author || p?.profile || {};
+    const region = u.region || p?.region || p?.location || {};
+    const domSeller = parseSellerFromPageText();
+    return {
+      nickname:
+        pickFirstString(u, ['nickname', 'nickName', 'name', 'displayName', 'username']) ||
+        pickFirstString(p, ['nickname', 'sellerName', 'userName', 'displayName']) ||
+        domSeller.nickname,
+      location:
+        pickFirstString(region, ['name', 'fullName', 'displayName']) ||
+        pickFirstString(p, ['locationName', 'regionName', 'townName', 'addressName']) ||
+        domSeller.location,
+      score: u.score ?? u.mannerScore ?? p?.mannerScore ?? null,
+      reviewCount: u.reviewCount ?? p?.reviewCount ?? null,
+    };
+  }
+
   function scrapeProductFromDom() {
     const itemId =
       extractItemIdFromUrl() ||
@@ -337,9 +425,11 @@
     const mannerM = txt.match(/(\d{2,3}(?:\.\d+)?)\s*°?\s*C/i);
     const reviewM = txt.match(/후기\s*([\d,]+)/);
 
+    const domSeller = parseSellerFromPageText();
     const nick =
       document.querySelector('a[href*="/users/"]')?.textContent?.trim() ||
       document.querySelector('[class*="nickname" i]')?.textContent?.trim() ||
+      domSeller.nickname ||
       '';
 
     let imgs = harvestImagesFromDom();
@@ -354,7 +444,7 @@
       content: body,
       price: isFree ? '나눔' : priceM ? priceM[1].replace(/,/g, '') : '',
       images: imgs,
-      locationName: '',
+      locationName: domSeller.location || '',
       user: {
         nickname: nick,
         score: mannerM ? Number(mannerM[1]) : null,
@@ -365,7 +455,7 @@
   }
 
   function productToListing(p, itemId) {
-    const u = p.user || {};
+    const u = pickDaangnUserFromProduct(p);
     const domPriceM = (document.body?.innerText || '').match(/([\d,]+)\s*원/);
     const rawPrice = p.price === 0 && domPriceM ? domPriceM[1] : p.price;
     const priceRaw = String(rawPrice ?? '').replace(/,/g, '');
@@ -403,7 +493,7 @@
         nickname: u.nickname || '',
         mannerScore: u.score != null ? Number(u.score) : null,
         reviewCount: u.reviewCount != null ? Number(u.reviewCount) : null,
-        location: u.region?.name || p.locationName || '',
+        location: u.location || p.locationName || '',
       },
       source: p._fromDom ? 'dom' : 'remix',
       sourceLabel: p._fromDom ? 'DOM' : 'Remix',

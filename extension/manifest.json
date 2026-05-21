@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "중고 매물 스크랩 (번개·당근·중고나라)",
-  "version": "2.7.6",
+  "version": "2.7.7",
   "description": "번개장터·당근마켓·중고나라 매물 상세에서 가격·제목·사진·본문·판매자 정보를 모읍니다. 개인 참고용.",
   "permissions": ["activeTab", "scripting", "storage", "tabs"],
   "background": {
